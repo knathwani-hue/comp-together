@@ -16,3 +16,7 @@ create function public.join_invite(token uuid) returns void language plpgsql sec
 create function public.unlink_partner(partner uuid) returns void language sql security definer set search_path='' as $$ delete from public.pairs where (a=auth.uid() and b=partner) or (b=auth.uid() and a=partner); $$;
 revoke all on function public.make_invite(), public.join_invite(uuid), public.unlink_partner(uuid) from public, anon;
 grant execute on function public.make_invite(), public.join_invite(uuid), public.unlink_partner(uuid) to authenticated;
+
+grant usage on schema public to authenticated;
+grant select, insert, update on public.planners, public.progress to authenticated;
+grant select on public.pairs to authenticated;
