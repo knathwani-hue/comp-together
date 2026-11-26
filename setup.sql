@@ -1,0 +1,18 @@
+create table public.planners (id uuid primary key references auth.users(id) on delete cascade, data jsonb not null default '{}', updated_at timestamptz not null default now());
+create table public.progress (id uuid primary key references auth.users(id) on delete cascade, name text not null, summary jsonb not null default '{}');
+create table public.pairs (a uuid references auth.users(id) on delete cascade, b uuid references auth.users(id) on delete cascade, primary key(a,b), check(a<>b));
+create table public.invites (code uuid primary key default gen_random_uuid(), owner uuid not null references auth.users(id) on delete cascade, expires timestamptz not null default now()+interval '1 day');
+alter table public.planners enable row level security;
+alter table public.progress enable row level security;
+alter table public.pairs enable row level security;
+alter table public.invites enable row level security;
+create policy own_planner on public.planners for all to authenticated using(id=auth.uid()) with check(id=auth.uid());
+create policy own_progress_insert on public.progress for insert to authenticated with check(id=auth.uid());
+create policy own_progress_update on public.progress for update to authenticated using(id=auth.uid()) with check(id=auth.uid());
+create policy pair_read on public.pairs for select to authenticated using(a=auth.uid() or b=auth.uid());
+create policy progress_read on public.progress for select to authenticated using(id=auth.uid() or exists(select 1 from public.pairs where (a=auth.uid() and b=id) or (b=auth.uid() and a=id)));
+create function public.make_invite() returns uuid language plpgsql security definer set search_path='' as $$ declare c uuid; begin if auth.uid() is null then raise exception 'Sign in'; end if; delete from public.invites where owner=auth.uid(); insert into public.invites(owner) values(auth.uid()) returning code into c; return c; end; $$;
+create function public.join_invite(token uuid) returns void language plpgsql security definer set search_path='' as $$ declare o uuid; begin if auth.uid() is null then raise exception 'Sign in'; end if; delete from public.invites where code=token and expires>now() returning owner into o; if o is null or o=auth.uid() then raise exception 'Invalid invitation'; end if; insert into public.pairs values(least(o,auth.uid()),greatest(o,auth.uid())) on conflict do nothing; end; $$;
+create function public.unlink_partner(partner uuid) returns void language sql security definer set search_path='' as $$ delete from public.pairs where (a=auth.uid() and b=partner) or (b=auth.uid() and a=partner); $$;
+revoke all on function public.make_invite(), public.join_invite(uuid), public.unlink_partner(uuid) from public, anon;
+grant execute on function public.make_invite(), public.join_invite(uuid), public.unlink_partner(uuid) to authenticated;
